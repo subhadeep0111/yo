@@ -7,6 +7,8 @@ Goal: ≤ 100 ms latency so the singer gets warned before collapse.
 """
 
 import os
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file (GEMINI_API_KEY etc.)
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -42,8 +44,8 @@ class AlertResult(BaseModel):
 
 class VerifyAlertRequest(BaseModel):
     """Payload sent to Gemini for alert verification."""
-    heart_rate: int
-    spo2: int
+    heart_rate: Optional[int] = None
+    spo2: Optional[int] = None
     voice_stress_level: float
     alert_level: str
     alert_message: str
@@ -118,12 +120,15 @@ async def verify_alert_with_gemini(data: VerifyAlertRequest) -> dict:
 
         client = genai.Client(api_key=api_key)
 
+        hr_display = data.heart_rate if data.heart_rate is not None else 'N/A (no sensor)'
+        spo2_display = data.spo2 if data.spo2 is not None else 'N/A (no sensor)'
+
         prompt = f"""You are a medical safety AI for a live singer monitoring system called VocalGuard.
 Analyze these real-time biometric readings and determine if the alert is genuine or a sensor glitch.
 
 CURRENT READINGS:
-- Heart Rate: {data.heart_rate} BPM
-- SpO2 (Blood Oxygen): {data.spo2}%
+- Heart Rate: {hr_display} BPM
+- SpO2 (Blood Oxygen): {spo2_display}%
 - Vocal Strain Index: {data.voice_stress_level}
 
 ALERT TRIGGERED: {data.alert_level.upper()}
@@ -146,7 +151,7 @@ Consider:
 Respond ONLY with the JSON, no other text."""
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash-preview-04-17",
+            model="gemini-3-flash-preview",
             contents=prompt,
         )
 

@@ -31,7 +31,7 @@ def find_arduino_port():
     for port in ports:
         desc = (port.description or "").lower()
         # Common Arduino identifiers
-        if any(keyword in desc for keyword in ["arduino", "ch340", "cp210", "usb serial", "usb-serial"]):
+        if any(keyword in desc for keyword in ["arduino", "ch340", "cp210", "usb serial", "usb-serial", "usbmodem", "usbserial", "iousbhostdevice"]):
             return port.device
 
     # If no known Arduino found, list available ports

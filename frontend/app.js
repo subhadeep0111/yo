@@ -9,7 +9,7 @@ const CONFIG = {
     WS_URL: `ws://${window.location.host}/ws/monitor`,
     API_BASE: window.location.origin,
     CHART_MAX_POINTS: 120,         // 60 seconds at 2 readings/sec
-    STRAIN_THRESHOLD: 0.8,
+    STRAIN_THRESHOLD: 0.57,
     RECONNECT_DELAY_MS: 3000,
     MIC_UPDATE_INTERVAL_MS: 100,
     MIC_CHART_INTERVAL_MS: 500,    // Push mic data to chart every 500ms
@@ -29,6 +29,8 @@ let currentStrain = 0;
 let alertActive = false;
 let receivingServerData = false;   // true when Arduino/server is sending data
 let lastServerDataTime = 0;
+let lastHeartRate = null;          // latest HR from server/simulator
+let lastSpO2 = null;               // latest SpO2 from server/simulator
 
 
 // ── Initialisation ──────────────────────────────────────────────────────────
@@ -86,28 +88,30 @@ function updateConnectionStatus(connected) {
 // ── Data Handler (Server / Arduino data) ────────────────────────────────────
 
 function handleIncomingData(data) {
-    // Update metric cards with server data
-    updateMetricCard('pitch-value', data.pitch != null ? Math.round(data.pitch) : '--');
-    updateMetricCard('strain-value', data.voice_stress_level != null ? data.voice_stress_level.toFixed(2) : '0.00');
-    updateMetricCard('volume-value', data.volume != null ? Math.round(data.volume) : '--');
+    // Only update HR and SpO2 from server/simulator data
+    // Pitch, volume, and strain come from the local microphone
     updateMetricCard('hr-value', data.heart_rate != null ? data.heart_rate : '--');
     updateMetricCard('spo2-value', data.spo2 != null ? data.spo2 : '--');
 
-    // Push to chart
-    addChartDataPoint(data.voice_stress_level, data.timestamp);
+    // Save latest HR/SpO2 for use in mic-triggered alerts
+    if (data.heart_rate != null) lastHeartRate = data.heart_rate;
+    if (data.spo2 != null) lastSpO2 = data.spo2;
 
     // Apply alert styling to cards
     applyAlertStyling(data.alert_level);
 
     // Log the reading
     if (data.alert_level === 'critical') {
-        addLog(`CRITICAL — HR:${data.heart_rate} SpO2:${data.spo2}% Strain:${data.voice_stress_level.toFixed(2)}`, 'critical');
+        addLog(`CRITICAL — HR:${data.heart_rate} SpO2:${data.spo2}% Strain:${currentStrain.toFixed(2)}`, 'critical');
     } else if (data.alert_level === 'warning') {
-        addLog(`WARNING — HR:${data.heart_rate} SpO2:${data.spo2}% Strain:${data.voice_stress_level.toFixed(2)}`, 'warning');
+        addLog(`WARNING — HR:${data.heart_rate} SpO2:${data.spo2}% Strain:${currentStrain.toFixed(2)}`, 'warning');
     }
 
     // Trigger alert modal if threshold breached
     if (data.alert_level !== 'normal' && !alertActive) {
+        data.voice_stress_level = currentStrain;  // use mic strain
+        data.pitch = currentPitch;
+        data.volume = currentVolume;
         showAlert(data);
     }
 }
@@ -289,35 +293,28 @@ function processMicData() {
     // ── Local Strain Index ──
     // Compute a strain value from volume intensity (0-1 range)
     // Higher volume = higher strain, pitch instability adds strain
-    const volumeStrain = Math.min(currentVolume / 85, 1.0);     // normalise: 85dB = max strain
-    const pitchFactor = currentPitch > 500 ? 0.15 : 0;          // high pitch adds strain
-    currentStrain = Math.min(1.0, volumeStrain * 0.8 + pitchFactor + Math.random() * 0.05);
+    const volumeStrain = Math.min(currentVolume / 100, 1.0);    // normalise: 100dB = max strain (raised from 85)
+    const pitchFactor = currentPitch > 600 ? 0.1 : 0;           // only very high pitch adds strain
+    currentStrain = Math.min(1.0, volumeStrain * 0.7 + pitchFactor + Math.random() * 0.03);
     currentStrain = Math.round(currentStrain * 100) / 100;
 
-    // ── Always update pitch & volume cards from mic ──
-    // (server data for HR/SpO2 will override those cards separately)
-    const isServerActive = receivingServerData && (Date.now() - lastServerDataTime < 3000);
-
-    if (!isServerActive) {
-        updateMetricCard('pitch-value', currentPitch > 0 ? Math.round(currentPitch) : '--');
-        updateMetricCard('volume-value', Math.round(currentVolume));
-        updateMetricCard('strain-value', currentStrain.toFixed(2));
-        // HR and SpO2 stay as "--" without Arduino
-    }
+    // ── Always update pitch, volume & strain cards from mic ──
+    // HR and SpO2 come from server/simulator data only
+    updateMetricCard('pitch-value', currentPitch > 0 ? Math.round(currentPitch) : '--');
+    updateMetricCard('volume-value', Math.round(currentVolume));
+    updateMetricCard('strain-value', currentStrain.toFixed(2));
 }
 
 function pushMicDataToChart() {
-    // Only push mic data to chart when server is NOT sending data
-    const isServerActive = receivingServerData && (Date.now() - lastServerDataTime < 3000);
-
-    if (!isServerActive && analyserNode) {
+    // Always push mic strain data to the chart
+    if (analyserNode) {
         addChartDataPoint(currentStrain, null);
 
         // ── Local strain threshold alert ──
         if (currentStrain >= CONFIG.STRAIN_THRESHOLD && !alertActive) {
             const localAlertData = {
-                heart_rate: '--',
-                spo2: '--',
+                heart_rate: lastHeartRate != null ? lastHeartRate : '--',
+                spo2: lastSpO2 != null ? lastSpO2 : '--',
                 voice_stress_level: currentStrain,
                 pitch: currentPitch,
                 volume: currentVolume,
@@ -438,8 +435,8 @@ async function showAlert(data) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                heart_rate: data.heart_rate,
-                spo2: data.spo2,
+                heart_rate: typeof data.heart_rate === 'number' ? data.heart_rate : null,
+                spo2: typeof data.spo2 === 'number' ? data.spo2 : null,
                 voice_stress_level: data.voice_stress_level,
                 alert_level: data.alert_level,
                 alert_message: data.alert_message,
@@ -519,4 +516,71 @@ function addMarker() {
     const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
     addLog(`📌 MARKER set at ${timestamp}`, 'normal');
     // Placeholder — marker persistence can be added later
+}
+
+// ── Dummy Calibration Feature ───────────────────────────────────────────────
+
+function runDummyCalibration() {
+    const inputs = document.querySelectorAll('.stem-input');
+    let filesSelected = 0;
+    inputs.forEach(input => { if (input.files.length > 0) filesSelected++; });
+
+    // Enforce 3 files for the dummy demo
+    if (filesSelected < 3) {
+        alert("Please select 3 dummy audio files (Baseline, Comfort, Pushed) to calibrate.");
+        return;
+    }
+
+    const btn = document.getElementById('btn-calibrate');
+    const status = document.getElementById('calibration-status');
+    const progressText = status.querySelector('span');
+    const progressFill = document.getElementById('calib-progress');
+
+    btn.style.display = 'none';
+    status.style.display = 'block';
+    progressFill.style.width = '0%';
+    progressText.innerText = "Extracting FFT Features...";
+    progressText.style.color = 'var(--warning)';
+
+    setTimeout(() => {
+        progressFill.style.width = '40%';
+        progressText.innerText = "Analyzing Dynamic Range...";
+    }, 1500);
+
+    setTimeout(() => {
+        progressFill.style.width = '80%';
+        progressText.innerText = "Training Personal Model...";
+    }, 3000);
+
+    setTimeout(() => {
+        progressFill.style.width = '100%';
+        progressText.innerText = "Calibration Complete!";
+        progressText.style.color = 'var(--success)';
+
+        // Generate a random personalized threshold between 0.45 and 0.75
+        const newThresholdStr = (Math.random() * (0.75 - 0.45) + 0.45).toFixed(2);
+        const newThreshold = parseFloat(newThresholdStr);
+
+        // Update globally
+        CONFIG.STRAIN_THRESHOLD = newThreshold;
+
+        // Update UI
+        document.getElementById('threshold-val').innerText = newThresholdStr;
+
+        // Update Chart threshold line
+        if (strainChart) {
+            strainChart.data.datasets[1].data = Array(CONFIG.CHART_MAX_POINTS).fill(CONFIG.STRAIN_THRESHOLD);
+            strainChart.update();
+        }
+
+        addLog(`AI Calibration Done. New Personal Threshold: ${newThresholdStr}`, 'normal');
+
+        // Reset UI after success
+        setTimeout(() => {
+            status.style.display = 'none';
+            btn.style.display = 'block';
+            inputs.forEach(input => input.value = ''); // Reset file inputs
+        }, 4000);
+
+    }, 5000);
 }

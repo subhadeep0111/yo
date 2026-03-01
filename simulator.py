@@ -34,7 +34,7 @@ def generate_vitals():
     performance_progress = min(time_counter / 120, 1.0)  # peaks at ~60 seconds
 
     # Heart rate: gradually increases during performance
-    hr = int(BASE_HR + 30 * performance_progress + random.gauss(0, 5))
+    hr = random.randint(72, 78)
 
     # SpO2: stays mostly stable, occasional dips
     spo2 = int(BASE_SPO2 - 2 * performance_progress + random.gauss(0, 1))
@@ -54,7 +54,7 @@ def generate_vitals():
 
     # ── Simulate a critical event after ~50 seconds ──
     if 100 <= time_counter <= 110:
-        hr = random.randint(175, 195)
+        hr = random.randint(72, 78)  # Kept normal as requested
         spo2 = random.randint(86, 91)
         stress = round(random.uniform(0.85, 0.99), 2)
         print(f"  🚨 SIMULATING CRITICAL EVENT (packet {time_counter})")
