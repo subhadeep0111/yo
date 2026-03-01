@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoxGuard — Real-Time Vocal Safety Monitor</title>
+    <meta name="description" content="VoxGuard real-time vocal safety monitoring dashboard for singers. Live biometric tracking with AI-powered alert verification.">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+    <link rel="stylesheet" href="/frontend/style.css">
+</head>
+<body>
+    <!-- ─── Header ─────────────────────────────────────────────────────── -->
+    <header id="app-header">
+        <div class="header-left">
+            <h1 class="logo">VOXGUARD</h1>
+            <span class="monitoring-label">MONITORING: <span id="artist-name">ARTIST X</span></span>
+        </div>
+        <div class="header-right">
+            <div class="connection-status" id="connection-status">
+                <span class="status-dot"></span>
+                <span class="status-text">DISCONNECTED</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ─── Metric Cards ───────────────────────────────────────────────── -->
+    <section id="metrics-bar">
+        <div class="metric-card" id="card-pitch">
+            <div class="metric-header">
+                <span class="metric-label">PITCH</span>
+                <span class="metric-icon">♪</span>
+            </div>
+            <div class="metric-value">
+                <span id="pitch-value">--</span>
+                <span class="metric-unit">Hz</span>
+            </div>
+        </div>
+
+        <div class="metric-card" id="card-strain">
+            <div class="metric-header">
+                <span class="metric-label">STRAIN INDEX</span>
+                <span class="metric-icon">⚡</span>
+            </div>
+            <div class="metric-value">
+                <span id="strain-value">0.00</span>
+            </div>
+        </div>
+
+        <div class="metric-card" id="card-volume">
+            <div class="metric-header">
+                <span class="metric-label">VOLUME</span>
+                <span class="metric-icon">🔊</span>
+            </div>
+            <div class="metric-value">
+                <span id="volume-value">--</span>
+                <span class="metric-unit">dB</span>
+            </div>
+        </div>
+
+        <div class="metric-card" id="card-vitals">
+            <div class="metric-header">
+                <span class="metric-label">HEART / SPO2</span>
+                <span class="metric-icon vitals-icon">♥</span>
+            </div>
+            <div class="metric-value dual-value">
+                <span id="hr-value">--</span>
+                <span class="metric-separator">/</span>
+                <span id="spo2-value">--</span>
+                <span class="metric-unit">BPM / %</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- ─── Main Content ───────────────────────────────────────────────── -->
+    <main id="main-content">
+        <!-- Left: Chart -->
+        <section id="chart-section">
+            <div class="section-header">
+                <div class="section-title-group">
+                    <span class="live-dot"></span>
+                    <h2>REAL-TIME VOCAL STRAIN TELEMETRY</h2>
+                </div>
+                <span class="threshold-label">Threshold: <span id="threshold-val">0.8</span></span>
+            </div>
+            <div class="chart-container">
+                <canvas id="strain-chart"></canvas>
+            </div>
+        </section>
+
+        <!-- Right: Log + Actions -->
+        <aside id="sidebar">
+            <!-- System Log -->
+            <div class="sidebar-panel" id="log-panel">
+                <div class="panel-header">
+                    <h3>SYSTEM LOG</h3>
+                    <span class="auto-scroll-label">AUTO-SCROLL: ON</span>
+                </div>
+                <div class="log-container" id="log-container">
+                    <div class="log-entry">
+                        <span class="log-time">[--:--:--]</span>
+                        <span class="log-msg">System Initialized</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Session Actions -->
+            <div class="sidebar-panel" id="actions-panel">
+                <div class="panel-header">
+                    <h3>SESSION ACTIONS</h3>
+                </div>
+                <button class="action-btn btn-export" id="btn-export" onclick="exportSessionLog()">
+                    📄 Export Session Log
+                </button>
+                <button class="action-btn btn-marker" id="btn-marker" onclick="addMarker()">
+                    🏷 Add Marker
+                </button>
+            </div>
+        </aside>
+    </main>
+
+    <!-- ─── Alert Modal ────────────────────────────────────────────────── -->
+    <div class="alert-overlay" id="alert-overlay">
+        <div class="alert-modal" id="alert-modal">
+            <div class="alert-header" id="alert-header">
+                <span class="alert-icon">⚠️</span>
+                <h2 id="alert-title">ALERT DETECTED</h2>
+            </div>
+            <div class="alert-body">
+                <p id="alert-message-text">--</p>
+                <div class="alert-vitals">
+                    <div class="alert-vital-item">
+                        <span class="alert-vital-label">Heart Rate</span>
+                        <span class="alert-vital-value" id="alert-hr">--</span>
+                    </div>
+                    <div class="alert-vital-item">
+                        <span class="alert-vital-label">SpO2</span>
+                        <span class="alert-vital-value" id="alert-spo2">--</span>
+                    </div>
+                    <div class="alert-vital-item">
+                        <span class="alert-vital-label">Strain</span>
+                        <span class="alert-vital-value" id="alert-strain">--</span>
+                    </div>
+                </div>
+                <div class="gemini-section" id="gemini-section">
+                    <div class="gemini-header">
+                        <span>🤖 GEMINI AI VERIFICATION</span>
+                        <span class="gemini-spinner" id="gemini-spinner">⟳</span>
+                    </div>
+                    <div class="gemini-result" id="gemini-result">
+                        <p>Analyzing alert with AI...</p>
+                    </div>
+                </div>
+            </div>
+            <button class="alert-dismiss" id="alert-dismiss" onclick="dismissAlert()">ACKNOWLEDGE</button>
+        </div>
+    </div>
+
+    <script src="/frontend/app.js"></script>
+</body>
+</html>
